@@ -7,18 +7,44 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from core.config import settings
 
-# Engine asíncrono para MySQL
+def _build_async_sync_urls(db_url: str) -> tuple[str, str]:
+    """Devuelve (async_url, sync_url) con drivers correctos para SQLite/MySQL."""
+    url = db_url.strip()
+    # SQLite
+    if url.startswith("sqlite"):
+        async_url = url
+        if "+aiosqlite" not in async_url:
+            async_url = async_url.replace("sqlite://", "sqlite+aiosqlite://")
+        # Sync URL sin aiosqlite
+        sync_url = async_url.replace("+aiosqlite", "")
+        return async_url, sync_url
+
+    # MySQL
+    if "+aiomysql" not in url and "+pymysql" in url:
+        async_url = url.replace("+pymysql", "+aiomysql")
+    elif "+aiomysql" in url:
+        async_url = url
+    else:
+        # Si no especifica driver, asumir aiomysql para async y pymysql para sync
+        async_url = url.replace("mysql://", "mysql+aiomysql://")
+    sync_url = async_url.replace("+aiomysql", "+pymysql")
+    return async_url, sync_url
+
+
+ASYNC_DB_URL, SYNC_DB_URL = _build_async_sync_urls(settings.DATABASE_URL)
+
+# Engine asíncrono
 async_engine = create_async_engine(
-    settings.DATABASE_URL,
+    ASYNC_DB_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20
 )
 
-# Engine síncrono para crear tablas
+# Engine síncrono para crear tablas y scripts
 sync_engine = create_engine(
-    settings.DATABASE_URL.replace("+aiomysql", "+pymysql"),
+    SYNC_DB_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True
 )

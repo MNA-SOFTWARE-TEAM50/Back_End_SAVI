@@ -2,7 +2,7 @@
 Schemas de Usuario con Pydantic
 """
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -21,10 +21,12 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     """Schema para actualizar usuario"""
+    username: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = None
 
 
 class UserInDB(UserBase):
@@ -41,6 +43,12 @@ class UserInDB(UserBase):
 class User(UserInDB):
     """Usuario para respuesta API (sin contraseña)"""
     pass
+
+
+class UserList(BaseModel):
+    """Lista paginada de usuarios"""
+    items: List[User]
+    total: int
 
 
 class Token(BaseModel):
