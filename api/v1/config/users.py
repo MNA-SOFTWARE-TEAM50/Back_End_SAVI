@@ -15,7 +15,8 @@ from schemas.user import (
     UserUpdate,
     UserList,
 )
-from core.security import get_password_hash, decode_access_token
+from core.security import get_password_hash, decode_access_token, validate_password_policy
+from models.audit_log import AuditLog
 
 router = APIRouter()
 
@@ -98,17 +99,29 @@ async def get_user(user_id: str, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.post("/", response_model=UserSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
-async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    payload: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
     """Crear un nuevo usuario"""
     # Unicidad de username y email
     result = await db.execute(select(User).filter(User.username == payload.username))
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nombre de usuario ya existe")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identificador en uso")
 
     result = await db.execute(select(User).filter(User.email == payload.email))
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email ya registrado")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identificador en uso")
+
+    # Validar política de contraseña
+    unmet = validate_password_policy(payload.password)
+    if unmet:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no cumple la política: " + "; ".join(unmet)
+        )
 
     data = payload.model_dump()
     data["hashed_password"] = get_password_hash(data.pop("password"))
@@ -117,11 +130,29 @@ async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    # Bitácora de auditoría (alta de usuario)
+    audit = AuditLog(
+        action="create_user",
+        actor_user_id=current_user.id,
+        target_user_id=user.id,
+        role_assigned=user.role,
+        result="success",
+        detail=f"Alta de usuario {user.username}"
+    )
+    db.add(audit)
+    await db.commit()
+
     return user
 
 
-@router.put("/{user_id}", response_model=UserSchema, dependencies=[Depends(require_admin)])
-async def update_user(user_id: str, payload: UserUpdate, db: AsyncSession = Depends(get_db)):
+@router.put("/{user_id}", response_model=UserSchema)
+async def update_user(
+    user_id: str,
+    payload: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
     """Actualizar datos de un usuario; si viene password, se re-hashea"""
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -134,16 +165,22 @@ async def update_user(user_id: str, payload: UserUpdate, db: AsyncSession = Depe
     if "email" in update_data and update_data["email"] != user.email:
         result = await db.execute(select(User).filter(User.email == update_data["email"]))
         if result.scalar_one_or_none():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email ya registrado")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identificador en uso")
 
     if "username" in update_data and update_data["username"] != user.username:
         result = await db.execute(select(User).filter(User.username == update_data["username"]))
         if result.scalar_one_or_none():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nombre de usuario ya existe")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identificador en uso")
 
     # Manejar cambio de contraseña si se envía "password"
     password = update_data.pop("password", None)
     if password:
+        unmet = validate_password_policy(password)
+        if unmet:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La contraseña no cumple la política: " + "; ".join(unmet)
+            )
         user.hashed_password = get_password_hash(password)
 
     for k, v in update_data.items():

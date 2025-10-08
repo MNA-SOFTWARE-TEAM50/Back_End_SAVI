@@ -10,7 +10,7 @@ from sqlalchemy import select
 from db.session import get_db
 from models.user import User
 from schemas.user import User as UserSchema, UserCreate, Token
-from core.security import verify_password, get_password_hash, create_access_token
+from core.security import verify_password, get_password_hash, create_access_token, validate_password_policy
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
@@ -25,7 +25,7 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Usuario ya existe"
+            detail="Identificador en uso"
         )
     
     result = await db.execute(select(User).filter(User.email == user.email))
@@ -33,7 +33,15 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     if existing_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email ya registrado"
+            detail="Identificador en uso"
+        )
+
+    # Validar política de contraseña
+    unmet = validate_password_policy(user.password)
+    if unmet:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no cumple la política: " + "; ".join(unmet)
         )
     
     # Crear usuario

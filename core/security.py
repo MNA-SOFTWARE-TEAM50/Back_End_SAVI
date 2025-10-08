@@ -6,6 +6,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from core.config import settings
+import re
 
 # Contexto para hashing de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -60,3 +61,22 @@ def decode_access_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def validate_password_policy(password: str) -> list[str]:
+    """Valida la política de contraseñas y regresa la lista de requisitos incumplidos."""
+    unmet: list[str] = []
+    if len(password) < 12:
+        unmet.append("Debe tener al menos 12 caracteres")
+    if not re.search(r"[A-Z]", password):
+        unmet.append("Debe incluir al menos una letra mayúscula")
+    if not re.search(r"[a-z]", password):
+        unmet.append("Debe incluir al menos una letra minúscula")
+    if not re.search(r"[0-9]", password):
+        unmet.append("Debe incluir al menos un dígito")
+    if not re.search(r"[^A-Za-z0-9]", password):
+        unmet.append("Debe incluir al menos un símbolo")
+    # No permitir 3 caracteres idénticos consecutivos
+    if re.search(r"(.)\1\1", password):
+        unmet.append("No debe contener 3 caracteres idénticos consecutivos")
+    return unmet
