@@ -10,7 +10,9 @@ from sqlalchemy import select
 from db.session import get_db
 from models.user import User
 from schemas.user import User as UserSchema, UserCreate, Token
-from core.security import verify_password, get_password_hash, create_access_token, validate_password_policy
+from core.security import verify_password, get_password_hash, create_access_token, validate_password_policy, get_permissions_for_role
+from models.audit_log import AuditLog
+from datetime import datetime, timedelta
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
@@ -56,6 +58,10 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     return db_user
 
 
+LOCK_WINDOW_MINUTES = 10
+MAX_FAILED_ATTEMPTS = 5
+
+
 @router.post("/login")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -66,34 +72,86 @@ async def login(
     result = await db.execute(select(User).filter(User.username == form_data.username))
     user = result.scalar_one_or_none()
     
-    # Validar credenciales
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    # Si no existe usuario
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos, favor de verificar",
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Denegar acceso si inactivo/bloqueado con mensaje genérico
+    if not user.is_active or getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Lockout: 5 intentos fallidos en 10 minutos bloquean la cuenta
+    now = datetime.utcnow()
+    if getattr(user, "first_failed_at", None) and now - user.first_failed_at > timedelta(minutes=LOCK_WINDOW_MINUTES):
+        user.failed_attempts = 0
+        user.first_failed_at = None
+
+    if not verify_password(form_data.password, user.hashed_password):
+        if user.failed_attempts == 0:
+            user.first_failed_at = now
+        user.failed_attempts += 1
+
+        if user.failed_attempts >= MAX_FAILED_ATTEMPTS and user.first_failed_at and now - user.first_failed_at <= timedelta(minutes=LOCK_WINDOW_MINUTES):
+            user.is_locked = True
+            user.locked_at = now
+            # Auditoría de bloqueo
+            audit = AuditLog(
+                action="lock_user",
+                actor_user_id=user.id,
+                target_user_id=user.id,
+                role_assigned=user.role,
+                result="failure",
+                detail="Cuenta bloqueada por intentos fallidos"
+            )
+            db.add(audit)
+
+        await db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Validar usuario activo
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Usuario inactivo, contacte al administrador"
-        )
-    
-    # Crear token con user_id (UUID)
+    # Éxito: resetear contadores de lockout
+    user.failed_attempts = 0
+    user.first_failed_at = None
+    await db.commit()
+
+    # Crear token, permisos y auditoría de login
     access_token = create_access_token(data={"sub": user.id, "username": user.username, "role": user.role})
+    permissions = get_permissions_for_role(user.role)
+
+    audit = AuditLog(
+        action="login",
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        role_assigned=user.role,
+        result="success",
+        detail="Login exitoso"
+    )
+    db.add(audit)
+    await db.commit()
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "message": "La sesión se inició de manera exitosa. Bienvenido a SAVI",
+        "message": "Sesión iniciada",
         "user": {
             "id": user.id,
             "username": user.username,
             "email": user.email,
             "full_name": user.full_name,
-            "role": user.role
+            "role": user.role,
+            "permissions": permissions
         }
     }
 

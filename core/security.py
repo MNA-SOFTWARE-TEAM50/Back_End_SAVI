@@ -2,7 +2,7 @@
 Funciones de seguridad: autenticación, hashing, JWT
 """
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from core.config import settings
@@ -80,3 +80,34 @@ def validate_password_policy(password: str) -> list[str]:
     if re.search(r"(.)\1\1", password):
         unmet.append("No debe contener 3 caracteres idénticos consecutivos")
     return unmet
+
+
+# Mapa simple de permisos por rol (expandible en el futuro)
+ROLE_PERMISSIONS: Dict[str, List[str]] = {
+    "admin": [
+        "users:read",
+        "users:create",
+        "users:update",
+        "users:delete",
+        "products:*",
+        "sales:*",
+        "customers:*",
+        "config:*",
+    ],
+    "manager": [
+        "products:*",
+        "sales:read",
+        "sales:create",
+        "customers:*",
+    ],
+    "cashier": [
+        "sales:read",
+        "sales:create",
+        "products:read",
+        "customers:read",
+    ],
+}
+
+
+def get_permissions_for_role(role: str) -> List[str]:
+    return ROLE_PERMISSIONS.get(role, [])

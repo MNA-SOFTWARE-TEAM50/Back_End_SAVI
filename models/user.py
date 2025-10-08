@@ -1,7 +1,7 @@
 """
 Modelo de Usuario
 """
-from sqlalchemy import Boolean, Column, String, DateTime
+from sqlalchemy import Boolean, Column, String, DateTime, Integer
 from sqlalchemy.dialects.mysql import CHAR
 from sqlalchemy.sql import func
 from db.session import Base
@@ -18,5 +18,10 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), default="cashier", nullable=False)  # admin, cashier, manager
     is_active = Column(Boolean, default=True)
+    # Seguridad de autenticación
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    first_failed_at = Column(DateTime(timezone=True), nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    locked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
