@@ -37,12 +37,23 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user_id = payload.get("sub")
+    token_iat = payload.get("iat")
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario inactivo")
+    # Revocar si el token fue emitido antes del último logout
+    if getattr(user, "last_logout_at", None) and token_iat:
+        try:
+            from datetime import datetime
+            iat_dt = datetime.utcfromtimestamp(token_iat) if isinstance(token_iat, (int, float)) else datetime.fromisoformat(token_iat)
+            if user.last_logout_at and iat_dt < user.last_logout_at:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+
     return user
 
 

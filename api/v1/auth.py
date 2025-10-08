@@ -173,6 +173,7 @@ async def get_current_user(
         )
     
     user_id = payload.get("sub")  # Ahora "sub" contiene el UUID
+    token_iat = payload.get("iat")
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalar_one_or_none()
     
@@ -182,4 +183,60 @@ async def get_current_user(
             detail="Usuario no encontrado"
         )
     
+    # Si hubo logout después de emitido el token, invalidar
+    if getattr(user, "last_logout_at", None) and token_iat:
+        # token_iat puede venir como string/datetime; jose suele serializar datetime -> int timestamp
+        try:
+            iat_dt = datetime.utcfromtimestamp(token_iat) if isinstance(token_iat, (int, float)) else datetime.fromisoformat(token_iat)
+            if user.last_logout_at and iat_dt < user.last_logout_at:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except Exception:
+            # Si no podemos parsear, mejor invalidar por seguridad
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     return user
+
+
+@router.post("/logout")
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+):
+    """Cerrar sesión: invalida el token actual registrando last_logout_at y audit log"""
+    from core.security import decode_access_token
+
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    user.last_logout_at = datetime.utcnow()
+    audit = AuditLog(
+        action="logout",
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        role_assigned=user.role,
+        result="success",
+        detail="Logout manual"
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"message": "Sesión cerrada"}

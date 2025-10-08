@@ -61,6 +61,9 @@ def ensure_users_columns_mysql(conn, schema: str | None):
     if not column_exists_mysql(conn, "users", "locked_at", schema):
         conn.execute(text("ALTER TABLE users ADD COLUMN locked_at DATETIME NULL"))
         added.append("locked_at")
+    if not column_exists_mysql(conn, "users", "last_logout_at", schema):
+        conn.execute(text("ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL"))
+        added.append("last_logout_at")
     return added
 
 
@@ -80,6 +83,9 @@ def ensure_users_columns_sqlite(conn):
     if not column_exists_sqlite(conn, "users", "locked_at"):
         conn.execute(text("ALTER TABLE users ADD COLUMN locked_at DATETIME NULL"))
         added.append("locked_at")
+    if not column_exists_sqlite(conn, "users", "last_logout_at"):
+        conn.execute(text("ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL"))
+        added.append("last_logout_at")
     return added
 
 
@@ -175,6 +181,9 @@ def run_upgrade():
             if "locked_at" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN locked_at TIMESTAMP NULL"))
                 added.append("locked_at")
+            if "last_logout_at" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN last_logout_at TIMESTAMP NULL"))
+                added.append("last_logout_at")
 
         # Create audit_logs table if missing via raw DDL
         create_audit_logs_table(conn, dialect, schema)

@@ -23,5 +23,6 @@ class User(Base):
     first_failed_at = Column(DateTime(timezone=True), nullable=True)
     is_locked = Column(Boolean, default=False, nullable=False)
     locked_at = Column(DateTime(timezone=True), nullable=True)
+    last_logout_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
