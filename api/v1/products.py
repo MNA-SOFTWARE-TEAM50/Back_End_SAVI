@@ -1,10 +1,12 @@
 """
 Endpoints de productos
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
+import os
+from datetime import datetime
 
 from db.session import get_db
 from models.product import Product
@@ -60,6 +62,16 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=ProductSchema, status_code=status.HTTP_201_CREATED)
 async def create_product(product: ProductCreate, db: AsyncSession = Depends(get_db)):
     """Crear un nuevo producto"""
+    # Verificar si el SKU ya existe
+    if getattr(product, "sku", None):
+        result = await db.execute(select(Product).filter(Product.sku == product.sku))
+        existing_sku = result.scalar_one_or_none()
+        if existing_sku:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SKU ya existe"
+            )
+
     # Verificar si el código de barras ya existe
     if product.barcode:
         result = await db.execute(select(Product).filter(Product.barcode == product.barcode))
@@ -94,8 +106,26 @@ async def update_product(
             detail="Producto no encontrado"
         )
     
-    # Actualizar campos
+    # Validaciones de unicidad si cambian sku o barcode
     update_data = product.model_dump(exclude_unset=True)
+    if "sku" in update_data and update_data["sku"]:
+        result = await db.execute(select(Product).filter(Product.sku == update_data["sku"]))
+        existing_sku = result.scalar_one_or_none()
+        if existing_sku and existing_sku.id != db_product.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SKU ya existe"
+            )
+    if "barcode" in update_data and update_data["barcode"]:
+        result = await db.execute(select(Product).filter(Product.barcode == update_data["barcode"]))
+        existing_barcode = result.scalar_one_or_none()
+        if existing_barcode and existing_barcode.id != db_product.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Código de barras ya existe"
+            )
+
+    # Actualizar campos
     for field, value in update_data.items():
         setattr(db_product, field, value)
     
@@ -120,3 +150,42 @@ async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(db_product)
     
     return None
+
+
+@router.post("/{product_id}/image", response_model=ProductSchema)
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Subir imagen para un producto y actualizar su image_url"""
+    # Validar producto
+    result = await db.execute(select(Product).filter(Product.id == product_id))
+    db_product = result.scalar_one_or_none()
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    # Validar tipo de archivo
+    allowed = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    ext = allowed.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(status_code=400, detail="Tipo de imagen no soportado. Usa JPG, PNG o WEBP")
+
+    # Guardar archivo
+    media_root = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'media')
+    product_dir = os.path.join(media_root, 'products', str(product_id))
+    os.makedirs(product_dir, exist_ok=True)
+    fname = datetime.utcnow().strftime("%Y%m%d%H%M%S%f") + ext
+    path = os.path.join(product_dir, fname)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:  # 5 MB
+        raise HTTPException(status_code=400, detail="La imagen excede 5MB")
+    with open(path, 'wb') as f:
+        f.write(content)
+
+    # Actualizar URL (ruta relativa servida por /media)
+    rel_url = f"/media/products/{product_id}/{fname}"
+    db_product.image_url = rel_url
+    await db.flush()
+    await db.refresh(db_product)
+    return db_product

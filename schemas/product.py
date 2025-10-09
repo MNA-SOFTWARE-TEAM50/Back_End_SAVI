@@ -13,6 +13,7 @@ class ProductBase(BaseModel):
     price: float
     stock: int = 0
     category: str
+    sku: Optional[str] = None
     barcode: Optional[str] = None
     image_url: Optional[str] = None
 
@@ -29,6 +30,7 @@ class ProductUpdate(BaseModel):
     price: Optional[float] = None
     stock: Optional[int] = None
     category: Optional[str] = None
+    sku: Optional[str] = None
     barcode: Optional[str] = None
     image_url: Optional[str] = None
 

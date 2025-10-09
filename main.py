@@ -2,6 +2,8 @@
 Aplicación principal de FastAPI - SAVI
 """
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from api.v1 import api_router
@@ -51,6 +53,11 @@ def health_check():
 
 # Incluir routers de API
 app.include_router(api_router, prefix="/api/v1")
+
+# Servir archivos estáticos (imágenes subidas)
+MEDIA_DIR = os.path.join(os.path.dirname(__file__), 'media')
+os.makedirs(os.path.join(MEDIA_DIR, 'products'), exist_ok=True)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
 if __name__ == "__main__":
