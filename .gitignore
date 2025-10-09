@@ -59,3 +59,7 @@ htmlcov/
 
 # Alembic
 alembic/versions/*.pyc
+
+# Uploaded media (do not commit)
+media/*
+!media/.gitkeep
