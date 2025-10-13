@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 import re
 
@@ -111,3 +112,66 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
 
 def get_permissions_for_role(role: str) -> List[str]:
     return ROLE_PERMISSIONS.get(role, [])
+
+
+# Dependency para obtener usuario actual desde token JWT
+from fastapi import Depends, HTTPException, status as http_status
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    """
+    Dependency para obtener el usuario actual desde el token JWT.
+    Valida el token y verifica que no haya sido revocado por logout.
+    
+    Args:
+        token: Token JWT del header Authorization
+    """
+    from db.session import get_db
+    from models.user import User
+    from sqlalchemy import select
+    
+    # Obtener sesión de base de datos
+    async for db in get_db():
+        break
+    
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    user_id = payload.get("sub")
+    token_iat = payload.get("iat")
+    
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    
+    # Validar revocación por logout
+    if getattr(user, "last_logout_at", None) and token_iat:
+        try:
+            iat_dt = datetime.utcfromtimestamp(token_iat) if isinstance(token_iat, (int, float)) else datetime.fromisoformat(str(token_iat))
+            if user.last_logout_at and iat_dt < user.last_logout_at:
+                raise HTTPException(
+                    status_code=http_status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido (sesión cerrada)",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    return user

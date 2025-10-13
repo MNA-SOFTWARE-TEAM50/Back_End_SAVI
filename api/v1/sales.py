@@ -2,34 +2,46 @@
 Endpoints de ventas
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 
 from db.session import get_db
 from models.sale import Sale
 from models.product import Product
+from models.user import User
 from schemas.sale import Sale as SaleSchema, SaleCreate, SaleUpdate, SaleList
+from core.security import get_current_user
 
 router = APIRouter()
 
 
 @router.get("/", response_model=SaleList)
-def get_sales(
+async def get_sales(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Obtener lista de ventas"""
-    total = db.query(Sale).count()
-    sales = db.query(Sale).offset(skip).limit(limit).all()
+    count_result = await db.execute(select(Sale))
+    total = len(count_result.scalars().all())
+    
+    result = await db.execute(select(Sale).offset(skip).limit(limit).order_by(Sale.created_at.desc()))
+    sales = result.scalars().all()
     
     return {"items": sales, "total": total}
 
 
 @router.get("/{sale_id}", response_model=SaleSchema)
-def get_sale(sale_id: int, db: Session = Depends(get_db)):
+async def get_sale(
+    sale_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Obtener una venta por ID"""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    result = await db.execute(select(Sale).filter(Sale.id == sale_id))
+    sale = result.scalar_one_or_none()
     
     if not sale:
         raise HTTPException(
@@ -41,14 +53,18 @@ def get_sale(sale_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)
-def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
-    """Crear una nueva venta"""
-    # TODO: Obtener user_id del token de autenticación
-    user_id = 1  # Por ahora hardcodeado
-    
-    # Verificar stock de productos
+async def create_sale(
+    sale: SaleCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Crear una nueva venta y descontar del inventario"""
+    # Verificar stock de productos y recopilar productos
+    products_to_update = []
     for item in sale.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        result = await db.execute(select(Product).filter(Product.id == item.product_id))
+        product = result.scalar_one_or_none()
+        
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -58,35 +74,41 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
         if product.stock < item.quantity:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Stock insuficiente para {product.name}"
+                detail=f"Stock insuficiente para {product.name}. Disponible: {product.stock}, Solicitado: {item.quantity}"
             )
+        
+        products_to_update.append((product, item.quantity))
     
     # Crear venta
     sale_data = sale.model_dump()
-    sale_data["user_id"] = user_id
+    # Convertir items a dict para JSON
+    sale_data["items"] = [item.model_dump() for item in sale.items]
+    sale_data["user_id"] = current_user.id
+    sale_data["customer_id"] = None  # Customers deprecated
     
     db_sale = Sale(**sale_data)
     db.add(db_sale)
     
     # Actualizar stock de productos
-    for item in sale.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        product.stock -= item.quantity
+    for product, quantity in products_to_update:
+        product.stock -= quantity
     
-    db.commit()
-    db.refresh(db_sale)
+    await db.flush()
+    await db.refresh(db_sale)
     
     return db_sale
 
 
 @router.put("/{sale_id}", response_model=SaleSchema)
-def update_sale(
+async def update_sale(
     sale_id: int,
     sale: SaleUpdate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Actualizar una venta (principalmente el estado)"""
-    db_sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    result = await db.execute(select(Sale).filter(Sale.id == sale_id))
+    db_sale = result.scalar_one_or_none()
     
     if not db_sale:
         raise HTTPException(
@@ -99,7 +121,7 @@ def update_sale(
     for field, value in update_data.items():
         setattr(db_sale, field, value)
     
-    db.commit()
-    db.refresh(db_sale)
+    await db.flush()
+    await db.refresh(db_sale)
     
     return db_sale

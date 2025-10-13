@@ -44,6 +44,38 @@ async def get_products(
     return {"items": products, "total": total}
 
 
+@router.get("/search", response_model=ProductList)
+async def search_products(
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    in_stock: bool = False,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """Buscar productos por nombre, SKU o código de barras"""
+    query = select(Product)
+    
+    if q:
+        search_term = f"%{q}%"
+        query = query.filter(
+            (Product.name.ilike(search_term)) |
+            (Product.sku.ilike(search_term)) |
+            (Product.barcode.ilike(search_term))
+        )
+    
+    if category:
+        query = query.filter(Product.category == category)
+    
+    if in_stock:
+        query = query.filter(Product.stock > 0)
+    
+    query = query.limit(limit)
+    result = await db.execute(query)
+    products = result.scalars().all()
+    
+    return {"items": products, "total": len(products)}
+
+
 @router.get("/{product_id}", response_model=ProductSchema)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     """Obtener un producto por ID"""

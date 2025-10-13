@@ -39,7 +39,7 @@ class SaleUpdate(BaseModel):
 class Sale(SaleBase):
     """Venta para respuesta API"""
     id: int
-    user_id: int
+    user_id: str  # UUID del usuario
     status: str
     created_at: datetime
     updated_at: Optional[datetime] = None
