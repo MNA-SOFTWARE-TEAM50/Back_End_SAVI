@@ -43,6 +43,8 @@ class Sale(SaleBase):
     status: str
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # Total neto (total de la venta menos reembolsos de devoluciones asociadas)
+    net_total: Optional[float] = None
     
     class Config:
         from_attributes = True

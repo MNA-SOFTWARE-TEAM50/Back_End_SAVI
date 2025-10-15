@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Zona horaria
     TIMEZONE: str = "America/Mexico_City"
     
+    # Devoluciones
+    RETURN_WINDOW_DAYS: int = 30
+    
     @property
     def cors_origins_list(self) -> List[str]:
         """Convierte CORS_ORIGINS string a lista"""

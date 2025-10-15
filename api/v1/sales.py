@@ -15,6 +15,7 @@ from models.sale import Sale
 from models.product import Product
 from models.user import User
 from schemas.sale import Sale as SaleSchema, SaleCreate, SaleUpdate, SaleList, TodayStats, TopProducts, TopProduct
+from models.returns import Return as ReturnModel
 from core.security import get_current_user
 
 router = APIRouter()
@@ -49,6 +50,7 @@ async def get_sales(
     limit: int = 100,
     date_from: str | None = Query(None, description="YYYY-MM-DD o ISO datetime"),
     date_to: str | None = Query(None, description="YYYY-MM-DD o ISO datetime"),
+    sale_id: int | None = Query(None, description="Filtrar por ID de venta"),
     payment_method: str | None = None,
     status_param: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
@@ -65,6 +67,8 @@ async def get_sales(
         filters.append(Sale.payment_method == payment_method)
     if status_param:
         filters.append(Sale.status == status_param)
+    if sale_id is not None:
+        filters.append(Sale.id == sale_id)
 
     # total count
     total_result = await db.execute(select(func.count()).select_from(Sale).where(*filters))
@@ -78,8 +82,16 @@ async def get_sales(
         .limit(limit)
     )
     sales = result.scalars().all()
+    # Compute net_total per sale (total - sum(total_refund) for completed returns)
+    items_with_net = []
+    for s in sales:
+        ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == s.id, ReturnModel.status == 'completed'))
+        total_ref = float(ret_res.scalar() or 0.0)
+        # attach dynamic attribute for serialization via from_attributes
+        setattr(s, 'net_total', float(s.total) - total_ref)
+        items_with_net.append(s)
     
-    return {"items": sales, "total": total}
+    return {"items": items_with_net, "total": total}
 
 
 
@@ -144,7 +156,13 @@ async def get_today_stats(
     )
     sales_today = result.scalars().all()
 
-    revenue_today = float(sum(s.total for s in sales_today)) if sales_today else 0.0
+    # Calculate revenue using net totals (subtracting refunds)
+    revenue_today = 0.0
+    if sales_today:
+        for s in sales_today:
+            ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == s.id, ReturnModel.status == 'completed'))
+            total_ref = float(ret_res.scalar() or 0.0)
+            revenue_today += float(s.total) - total_ref
     # Contar productos vendidos sumando quantities en items JSON
     products_sold_today = 0
     customers_set = set()
@@ -190,7 +208,13 @@ async def get_stats(
     result = await db.execute(select(Sale).where(*filters))
     sales = result.scalars().all()
 
-    revenue = float(sum(s.total for s in sales)) if sales else 0.0
+    # Use net totals for revenue
+    revenue = 0.0
+    if sales:
+        for s in sales:
+            ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == s.id, ReturnModel.status == 'completed'))
+            total_ref = float(ret_res.scalar() or 0.0)
+            revenue += float(s.total) - total_ref
     products_sold = 0
     customers_set: set[int] = set()
     for s in sales:
@@ -223,7 +247,14 @@ async def get_recent_sales(
     """Últimas ventas (por fecha desc)."""
     result = await db.execute(select(Sale).order_by(Sale.created_at.desc()).limit(limit))
     sales = result.scalars().all()
-    return {"items": sales, "total": len(sales)}
+    # attach net_total
+    items_with_net = []
+    for s in sales:
+        ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == s.id, ReturnModel.status == 'completed'))
+        total_ref = float(ret_res.scalar() or 0.0)
+        setattr(s, 'net_total', float(s.total) - total_ref)
+        items_with_net.append(s)
+    return {"items": items_with_net, "total": len(items_with_net)}
 
 
 @router.get("/top-products", response_model=TopProducts)
@@ -272,6 +303,7 @@ async def get_top_products(
 async def export_sales_csv(
     date_from: str | None = Query(None, description="YYYY-MM-DD o ISO datetime"),
     date_to: str | None = Query(None, description="YYYY-MM-DD o ISO datetime"),
+    sale_id: int | None = Query(None, description="Filtrar por ID de venta"),
     payment_method: str | None = None,
     status_param: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
@@ -288,6 +320,8 @@ async def export_sales_csv(
         filters.append(Sale.payment_method == payment_method)
     if status_param:
         filters.append(Sale.status == status_param)
+    if sale_id is not None:
+        filters.append(Sale.id == sale_id)
 
     result = await db.execute(select(Sale).where(*filters).order_by(Sale.created_at.desc()))
     sales = result.scalars().all()
@@ -296,9 +330,13 @@ async def export_sales_csv(
     writer = csv.writer(output)
     # encabezados
     writer.writerow([
-        'id', 'created_at', 'payment_method', 'status', 'subtotal', 'tax', 'discount', 'total', 'items_count'
+        'id', 'created_at', 'payment_method', 'status', 'subtotal', 'tax', 'discount', 'total', 'net_total', 'items_count'
     ])
     for s in sales:
+        # compute net_total per sale for export
+        ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == s.id, ReturnModel.status == 'completed'))
+        total_ref = float(ret_res.scalar() or 0.0)
+        net_total = float(s.total) - total_ref
         items = s.items or []
         items_count = 0
         try:
@@ -316,6 +354,7 @@ async def export_sales_csv(
             f"{s.tax:.2f}",
             f"{s.discount:.2f}",
             f"{s.total:.2f}",
+            f"{net_total:.2f}",
             items_count,
         ])
 
@@ -344,6 +383,10 @@ async def get_sale(
             detail="Venta no encontrada"
         )
     
+    if sale:
+        ret_res = await db.execute(select(func.coalesce(func.sum(ReturnModel.total_refund), 0.0)).where(ReturnModel.sale_id == sale.id, ReturnModel.status == 'completed'))
+        total_ref = float(ret_res.scalar() or 0.0)
+        setattr(sale, 'net_total', float(sale.total) - total_ref)
     return sale
 
 @router.put("/{sale_id}", response_model=SaleSchema)
