@@ -72,15 +72,22 @@ async def get_db():
     Yields:
         AsyncSession: Sesión de base de datos asíncrona
     """
-    async with AsyncSessionLocal() as session:
+    # Explicitly create the session and close it in a finally block.
+    # Using `async with` here may attempt to close the session while
+    # other connection work is in progress which can raise
+    # IllegalStateChangeError. Creating the session and closing it in
+    # a finally block avoids that race.
+    session = AsyncSessionLocal()
+    try:
         try:
             yield session
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
+    finally:
+        # Ensure pooled connections are returned to the pool.
+        await session.close()
 
 
 def get_db_sync():

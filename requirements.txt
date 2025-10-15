@@ -26,6 +26,9 @@ fastapi-cors==0.0.6
 # Utilidades
 python-dateutil==2.9.0
 
+# Excel parsing
+openpyxl==3.1.2
+
 # Testing (opcional)
 pytest==8.3.3
 pytest-asyncio==0.24.0
