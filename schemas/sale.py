@@ -60,3 +60,22 @@ class SaleStats(BaseModel):
     total_revenue: float
     average_sale: float
     sales_by_method: dict
+
+
+class TodayStats(BaseModel):
+    """KPIs del día para el dashboard"""
+    revenue_today: float
+    products_sold_today: int
+    customers_today: int
+    transactions_today: int
+
+
+class TopProduct(BaseModel):
+    product_id: int | None = None
+    product_name: str
+    total_quantity: int
+    total_revenue: float
+
+
+class TopProducts(BaseModel):
+    items: list[TopProduct]

@@ -87,7 +87,16 @@ async def get_db():
             raise
     finally:
         # Ensure pooled connections are returned to the pool.
-        await session.close()
+        try:
+            await session.close()
+        except Exception as e:
+            # Work around SQLAlchemy IllegalStateChangeError that may appear
+            # when the session attempts to close while a connection is in progress
+            # during async generator teardown. As we're in finally, the session
+            # lifecycle is complete; suppress close-time errors.
+            from sqlalchemy.exc import IllegalStateChangeError
+            if not isinstance(e, IllegalStateChangeError):
+                raise
 
 
 def get_db_sync():
