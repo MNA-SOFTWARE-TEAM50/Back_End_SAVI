@@ -44,7 +44,7 @@ def _parse_date_range(date_from: str | None, date_to: str | None):
     return start_dt, end_dt
 
 
-@router.get("/", response_model=SaleList)
+@router.get("/", response_model=SaleList)# Obtener lista de ventas
 async def get_sales(
     skip: int = 0,
     limit: int = 100,
@@ -95,7 +95,7 @@ async def get_sales(
 
 
 
-@router.post("/", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)#Crear venta
 async def create_sale(
     sale: SaleCreate, 
     db: AsyncSession = Depends(get_db),
@@ -367,7 +367,7 @@ async def export_sales_csv(
     )
 
 
-@router.get("/{sale_id}", response_model=SaleSchema)
+@router.get("/{sale_id}", response_model=SaleSchema)#Obtener venta por ID
 async def get_sale(
     sale_id: int, 
     db: AsyncSession = Depends(get_db),
@@ -389,7 +389,7 @@ async def get_sale(
         setattr(sale, 'net_total', float(sale.total) - total_ref)
     return sale
 
-@router.put("/{sale_id}", response_model=SaleSchema)
+@router.put("/{sale_id}", response_model=SaleSchema)#Actualizar venta
 async def update_sale(
     sale_id: int,
     sale: SaleUpdate,
@@ -415,3 +415,38 @@ async def update_sale(
     await db.refresh(db_sale)
     
     return db_sale
+
+
+@router.delete("/{sale_id}", status_code=status.HTTP_200_OK)  # Eliminar venta
+async def delete_sale(
+    sale_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Eliminar una venta (solo para propósitos de prueba/desarrollo)"""
+    result = await db.execute(select(Sale).filter(Sale.id == sale_id))
+    db_sale = result.scalar_one_or_none()
+    
+    if not db_sale:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Venta no encontrada"
+        )
+    
+    # Restaurar stock de productos antes de eliminar
+    items = db_sale.items or []
+    for item in items:
+        if isinstance(item, dict):
+            product_id = item.get('product_id')
+            quantity = item.get('quantity', 0)
+            if product_id and quantity:
+                product_result = await db.execute(select(Product).filter(Product.id == product_id))
+                product = product_result.scalar_one_or_none()
+                if product:
+                    product.stock += quantity
+    
+    # Eliminar la venta
+    await db.delete(db_sale)
+    await db.commit()
+    
+    return {"message": "Eliminación exitosa"}
