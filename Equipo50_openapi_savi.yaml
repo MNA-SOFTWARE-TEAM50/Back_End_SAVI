@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.0.3
 
 info:
   title: SAVI - Sistema de Administración de Ventas e Inventario
@@ -27,7 +27,8 @@ info:
     
     ## Equipo de Desarrollo
     **Equipo 50 - Maestría en Inteligencia Artificial Aplicada**  
-    Tecnológico de Monterrey
+    Tecnológico de Monterrey  
+    Materia: Análisis, Diseño y Construcción de Software
     
     ### Integrantes:
     - Castro Gutiérrez Luis Mauricio (A01795088)
