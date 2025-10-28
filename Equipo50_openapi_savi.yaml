@@ -1,0 +1,1878 @@
+openapi: 3.1.0
+
+info:
+  title: SAVI - Sistema de Administración de Ventas e Inventario
+  version: 1.0.0
+  description: |
+    API RESTful para el Sistema de Administración de Ventas e Inventario (SAVI).
+    
+    Esta API proporciona endpoints para gestionar ventas, productos, clientes, devoluciones 
+    y usuarios en un sistema de punto de venta (POS). Incluye autenticación basada en JWT, 
+    control de roles, auditoría y generación de reportes.
+    
+    ## Características principales:
+    - Autenticación y autorización con JWT
+    - Gestión completa de productos e inventario
+    - Procesamiento de ventas con múltiples métodos de pago
+    - Sistema de devoluciones y reembolsos
+    - Gestión de clientes
+    - Dashboard con estadísticas en tiempo real
+    - Exportación de datos a CSV
+    - Auditoría de operaciones
+    
+    ## Roles de usuario:
+    - **admin**: Acceso completo al sistema
+    - **cashier**: Operaciones de venta y consultas básicas
+    - **manager**: Gestión de inventario y reportes
+    
+    ## Equipo de Desarrollo
+    **Equipo 50 - Maestría en Inteligencia Artificial Aplicada**  
+    Tecnológico de Monterrey
+    
+    ### Integrantes:
+    - Castro Gutiérrez Luis Mauricio (A01795088)
+    - Mayoral Terán Alexandro (A01795899)
+    - Sarmiento Cervantes Jacqueline (A01795863)
+    - Solís Hernández Gerardo (A00952702)
+  contact:
+    name: Equipo 50 - Análisis de Software
+    email: A01795088@tec.mx
+    url: https://github.com/MNA-SOFTWARE-TEAM50
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor de desarrollo local
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Autenticación
+    description: Endpoints de registro, login y gestión de tokens
+  - name: Usuarios
+    description: Gestión de usuarios del sistema
+  - name: Productos
+    description: Gestión de inventario y productos
+  - name: Ventas
+    description: Procesamiento de ventas y reportes
+  - name: Clientes
+    description: Gestión de clientes
+  - name: Devoluciones
+    description: Procesamiento de devoluciones y reembolsos
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Autenticación
+      summary: Registrar un nuevo usuario
+      description: |
+        Crea una nueva cuenta de usuario en el sistema. Valida que el username y email 
+        sean únicos y que la contraseña cumpla con las políticas de seguridad.
+        
+        **Política de contraseña:**
+        - Mínimo 8 caracteres
+        - Al menos una letra mayúscula
+        - Al menos una letra minúscula
+        - Al menos un número
+        - Al menos un carácter especial
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+            examples:
+              cashier:
+                summary: Registro de cajero
+                value:
+                  username: "juan.perez"
+                  email: "juan.perez@savi.com"
+                  full_name: "Juan Pérez"
+                  role: "cashier"
+                  password: "SecurePass123!"
+              admin:
+                summary: Registro de administrador
+                value:
+                  username: "admin.user"
+                  email: "admin@savi.com"
+                  full_name: "Administrador Sistema"
+                  role: "admin"
+                  password: "AdminPass456#"
+      responses:
+        '201':
+          description: Usuario creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Datos inválidos o usuario/email ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                duplicate:
+                  summary: Usuario duplicado
+                  value:
+                    detail: "Identificador en uso"
+                password_policy:
+                  summary: Contraseña débil
+                  value:
+                    detail: "La contraseña no cumple la política: debe tener al menos 8 caracteres; debe contener al menos una mayúscula"
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Autenticación
+      summary: Iniciar sesión
+      description: Autentica un usuario y retorna un token JWT para acceder a endpoints protegidos
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  description: Nombre de usuario
+                password:
+                  type: string
+                  format: password
+                  description: Contraseña del usuario
+            example:
+              username: "juan.perez"
+              password: "SecurePass123!"
+      responses:
+        '200':
+          description: Login exitoso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/me:
+    get:
+      tags:
+        - Autenticación
+      summary: Obtener información del usuario actual
+      description: Retorna la información del usuario autenticado basándose en el token JWT
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Información del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: No autenticado o token inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/products:
+    get:
+      tags:
+        - Productos
+      summary: Listar productos
+      description: Obtiene una lista paginada de productos con filtros opcionales por categoría
+      operationId: listProducts
+      parameters:
+        - name: skip
+          in: query
+          description: Número de productos a saltar (paginación)
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: limit
+          in: query
+          description: Número máximo de productos a retornar
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: category
+          in: query
+          description: Filtrar por categoría de producto
+          required: false
+          schema:
+            type: string
+            example: "Electrónica"
+      responses:
+        '200':
+          description: Lista de productos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+
+    post:
+      tags:
+        - Productos
+      summary: Crear producto
+      description: Crea un nuevo producto en el inventario
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: Producto creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/products/search:
+    get:
+      tags:
+        - Productos
+      summary: Buscar productos
+      description: Busca productos por nombre, descripción, SKU o código de barras
+      operationId: searchProducts
+      parameters:
+        - name: q
+          in: query
+          description: Término de búsqueda (nombre, descripción, SKU, código de barras)
+          required: false
+          schema:
+            type: string
+            example: "laptop"
+        - name: category
+          in: query
+          description: Filtrar por categoría
+          required: false
+          schema:
+            type: string
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Resultados de búsqueda
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+
+  /api/v1/products/{product_id}:
+    get:
+      tags:
+        - Productos
+      summary: Obtener producto por ID
+      description: Retorna los detalles de un producto específico
+      operationId: getProduct
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          description: ID del producto
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Detalles del producto
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Producto no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Productos
+      summary: Actualizar producto
+      description: Actualiza los datos de un producto existente
+      operationId: updateProduct
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Producto actualizado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Producto no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Productos
+      summary: Eliminar producto
+      description: Elimina un producto del inventario
+      operationId: deleteProduct
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Producto eliminado exitosamente
+        '404':
+          description: Producto no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/sales:
+    get:
+      tags:
+        - Ventas
+      summary: Listar ventas
+      description: Obtiene una lista paginada de ventas con filtros por fecha, método de pago y estado
+      operationId: listSales
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: date_from
+          in: query
+          description: Fecha inicial del rango (formato YYYY-MM-DD o ISO datetime)
+          schema:
+            type: string
+            format: date
+            example: "2025-10-01"
+        - name: date_to
+          in: query
+          description: Fecha final del rango
+          schema:
+            type: string
+            format: date
+            example: "2025-10-28"
+        - name: payment_method
+          in: query
+          description: Filtrar por método de pago
+          schema:
+            type: string
+            enum: [cash, card, transfer]
+        - name: status
+          in: query
+          description: Filtrar por estado de la venta
+          schema:
+            type: string
+            enum: [pending, completed, cancelled]
+      responses:
+        '200':
+          description: Lista de ventas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleList'
+
+    post:
+      tags:
+        - Ventas
+      summary: Crear venta
+      description: |
+        Procesa una nueva venta. Valida el stock disponible de productos, 
+        actualiza el inventario y registra la transacción.
+      operationId: createSale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+            example:
+              items:
+                - product_id: 1
+                  product_name: "Laptop HP"
+                  quantity: 1
+                  unit_price: 15000.00
+                  subtotal: 15000.00
+                - product_id: 2
+                  product_name: "Mouse Logitech"
+                  quantity: 2
+                  unit_price: 250.00
+                  subtotal: 500.00
+              subtotal: 15500.00
+              tax: 2480.00
+              discount: 0.00
+              total: 17980.00
+              payment_method: "card"
+              customer_id: 5
+      responses:
+        '201':
+          description: Venta creada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+        '400':
+          description: Stock insuficiente o datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/sales/{sale_id}:
+    get:
+      tags:
+        - Ventas
+      summary: Obtener venta por ID
+      description: Retorna los detalles completos de una venta específica
+      operationId: getSale
+      parameters:
+        - name: sale_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalles de la venta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+        '404':
+          description: Venta no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Ventas
+      summary: Actualizar venta
+      description: Actualiza el estado de una venta
+      operationId: updateSale
+      parameters:
+        - name: sale_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleUpdate'
+      responses:
+        '200':
+          description: Venta actualizada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+        '404':
+          description: Venta no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Ventas
+      summary: Eliminar venta
+      description: Cancela o elimina una venta del sistema
+      operationId: deleteSale
+      parameters:
+        - name: sale_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Venta eliminada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Venta eliminada exitosamente"
+        '404':
+          description: Venta no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/sales/stats/today:
+    get:
+      tags:
+        - Ventas
+      summary: Estadísticas del día
+      description: Retorna los KPIs del día actual para el dashboard (ingresos, productos vendidos, clientes, transacciones)
+      operationId: getTodayStats
+      responses:
+        '200':
+          description: Estadísticas del día
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodayStats'
+
+  /api/v1/sales/top-products:
+    get:
+      tags:
+        - Ventas
+      summary: Productos más vendidos
+      description: Obtiene la lista de productos más vendidos en un rango de fechas
+      operationId: getTopProducts
+      parameters:
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          description: Número de productos a retornar
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Lista de productos más vendidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopProducts'
+
+  /api/v1/sales/export:
+    get:
+      tags:
+        - Ventas
+      summary: Exportar ventas a CSV
+      description: Genera un archivo CSV con las ventas en el rango de fechas especificado
+      operationId: exportSales
+      parameters:
+        - name: date_from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Archivo CSV con las ventas
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Rango de fechas inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/customers:
+    get:
+      tags:
+        - Clientes
+      summary: Listar clientes
+      description: Obtiene una lista paginada de clientes
+      operationId: listCustomers
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Lista de clientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerList'
+
+    post:
+      tags:
+        - Clientes
+      summary: Crear cliente
+      description: Registra un nuevo cliente en el sistema
+      operationId: createCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerCreate'
+      responses:
+        '201':
+          description: Cliente creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          description: Email ya registrado o datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/customers/{customer_id}:
+    get:
+      tags:
+        - Clientes
+      summary: Obtener cliente por ID
+      description: Retorna los detalles de un cliente específico
+      operationId: getCustomer
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalles del cliente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          description: Cliente no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Clientes
+      summary: Actualizar cliente
+      description: Actualiza los datos de un cliente existente
+      operationId: updateCustomer
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerUpdate'
+      responses:
+        '200':
+          description: Cliente actualizado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          description: Cliente no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Clientes
+      summary: Eliminar cliente
+      description: Elimina un cliente del sistema
+      operationId: deleteCustomer
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Cliente eliminado exitosamente
+        '404':
+          description: Cliente no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/returns/validate:
+    get:
+      tags:
+        - Devoluciones
+      summary: Validar elegibilidad de devolución
+      description: |
+        Valida si una venta es elegible para devolución según las políticas del sistema:
+        - La venta debe existir y estar completada
+        - No debe haber pasado el periodo de devolución (configurable)
+        - No se puede devolver más de lo comprado
+      operationId: validateReturn
+      parameters:
+        - name: sale_id
+          in: query
+          required: true
+          description: ID de la venta a validar
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Resultado de la validación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnValidation'
+              examples:
+                valid:
+                  summary: Venta elegible
+                  value:
+                    ok: true
+                    reason: null
+                    errors: null
+                invalid:
+                  summary: Venta no elegible
+                  value:
+                    ok: false
+                    reason: "Periodo de devolución expirado"
+                    errors: ["Han pasado más de 30 días desde la compra"]
+
+  /api/v1/returns:
+    get:
+      tags:
+        - Devoluciones
+      summary: Listar devoluciones
+      description: Obtiene una lista paginada de devoluciones con filtros opcionales
+      operationId: listReturns
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: action
+          in: query
+          description: Filtrar por tipo de acción
+          schema:
+            type: string
+            enum: [refund, credit_note, exchange]
+      responses:
+        '200':
+          description: Lista de devoluciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnList'
+
+    post:
+      tags:
+        - Devoluciones
+      summary: Crear devolución
+      description: |
+        Procesa una nueva devolución. Valida la elegibilidad, actualiza el inventario 
+        y procesa el reembolso o cambio según corresponda.
+        
+        **Tipos de acción:**
+        - **refund**: Reembolso completo
+        - **credit_note**: Nota de crédito para compras futuras
+        - **exchange**: Cambio por otros productos
+      operationId: createReturn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReturnCreate'
+            examples:
+              refund:
+                summary: Devolución con reembolso
+                value:
+                  sale_id: 123
+                  items_returned:
+                    - product_id: 1
+                      product_name: "Laptop HP"
+                      quantity: 1
+                      unit_price: 15000.00
+                      subtotal: 15000.00
+                  items_exchanged: null
+                  action: "refund"
+                  refund_method: "card"
+                  reason: "Producto defectuoso"
+              exchange:
+                summary: Cambio de producto
+                value:
+                  sale_id: 124
+                  items_returned:
+                    - product_id: 2
+                      product_name: "Mouse Inalámbrico"
+                      quantity: 1
+                      unit_price: 250.00
+                      subtotal: 250.00
+                  items_exchanged:
+                    - product_id: 3
+                      product_name: "Mouse Ergonómico"
+                      quantity: 1
+                      unit_price: 300.00
+                      subtotal: 300.00
+                  action: "exchange"
+                  refund_method: null
+                  reason: "Cliente prefiere otro modelo"
+      responses:
+        '201':
+          description: Devolución procesada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Return'
+        '400':
+          description: Venta no elegible o datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/returns/{return_id}:
+    get:
+      tags:
+        - Devoluciones
+      summary: Obtener devolución por ID
+      description: Retorna los detalles completos de una devolución específica
+      operationId: getReturn
+      parameters:
+        - name: return_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalles de la devolución
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Return'
+        '404':
+          description: Devolución no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/returns/export:
+    get:
+      tags:
+        - Devoluciones
+      summary: Exportar devoluciones a CSV
+      description: Genera un archivo CSV con las devoluciones en el rango de fechas especificado
+      operationId: exportReturns
+      parameters:
+        - name: date_from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Archivo CSV con las devoluciones
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Token JWT obtenido del endpoint /api/v1/auth/login.
+        Incluir en el header: `Authorization: Bearer <token>`
+
+  schemas:
+    # ==================== Usuarios ====================
+    UserCreate:
+      type: object
+      required:
+        - username
+        - email
+        - full_name
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Nombre de usuario único
+          example: "juan.perez"
+        email:
+          type: string
+          format: email
+          description: Correo electrónico único
+          example: "juan.perez@savi.com"
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Nombre completo del usuario
+          example: "Juan Pérez García"
+        role:
+          type: string
+          enum: [admin, manager, cashier]
+          default: cashier
+          description: Rol del usuario en el sistema
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: Contraseña (debe cumplir política de seguridad)
+          example: "SecurePass123!"
+
+    UserUpdate:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        full_name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, manager, cashier]
+        is_active:
+          type: boolean
+          description: Estado activo/inactivo del usuario
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    User:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - full_name
+        - role
+        - is_active
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único del usuario (UUID4)
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        username:
+          type: string
+          example: "juan.perez"
+        email:
+          type: string
+          format: email
+          example: "juan.perez@savi.com"
+        full_name:
+          type: string
+          example: "Juan Pérez García"
+        role:
+          type: string
+          enum: [admin, manager, cashier]
+          example: "cashier"
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Fecha y hora de creación
+          example: "2025-10-01T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Fecha y hora de última actualización
+          example: "2025-10-15T14:20:00Z"
+
+    Token:
+      type: object
+      required:
+        - access_token
+        - token_type
+      properties:
+        access_token:
+          type: string
+          description: Token JWT para autenticación
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          default: bearer
+          example: "bearer"
+
+    UserLoginResponse:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - full_name
+        - role
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        role:
+          type: string
+
+    LoginResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - message
+        - user
+      properties:
+        access_token:
+          type: string
+          description: Token JWT
+        token_type:
+          type: string
+          default: bearer
+        message:
+          type: string
+          example: "Login exitoso"
+        user:
+          $ref: '#/components/schemas/UserLoginResponse'
+
+    # ==================== Productos ====================
+    ProductCreate:
+      type: object
+      required:
+        - name
+        - price
+        - category
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Nombre del producto
+          example: "Laptop HP Pavilion 15"
+        description:
+          type: string
+          nullable: true
+          maxLength: 1000
+          description: Descripción detallada del producto
+          example: "Laptop con procesador Intel Core i7, 16GB RAM, 512GB SSD"
+        price:
+          type: number
+          format: float
+          minimum: 0
+          description: Precio unitario del producto
+          example: 15000.00
+        stock:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Cantidad en inventario
+          example: 50
+        category:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Categoría del producto
+          example: "Electrónica"
+        sku:
+          type: string
+          nullable: true
+          maxLength: 50
+          description: Código SKU único
+          example: "LAP-HP-PAV15-001"
+        barcode:
+          type: string
+          nullable: true
+          maxLength: 50
+          description: Código de barras
+          example: "7501234567890"
+        image_url:
+          type: string
+          format: uri
+          nullable: true
+          description: URL de la imagen del producto
+          example: "http://localhost:8000/media/products/1/laptop.jpg"
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          maxLength: 1000
+        price:
+          type: number
+          format: float
+          minimum: 0
+        stock:
+          type: integer
+          minimum: 0
+        category:
+          type: string
+          maxLength: 100
+        sku:
+          type: string
+          nullable: true
+          maxLength: 50
+        barcode:
+          type: string
+          nullable: true
+          maxLength: 50
+        image_url:
+          type: string
+          format: uri
+          nullable: true
+
+    Product:
+      type: object
+      required:
+        - id
+        - name
+        - price
+        - stock
+        - category
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Identificador único del producto
+          example: 1
+        name:
+          type: string
+          example: "Laptop HP Pavilion 15"
+        description:
+          type: string
+          nullable: true
+          example: "Laptop con procesador Intel Core i7"
+        price:
+          type: number
+          format: float
+          example: 15000.00
+        stock:
+          type: integer
+          example: 50
+        category:
+          type: string
+          example: "Electrónica"
+        sku:
+          type: string
+          nullable: true
+          example: "LAP-HP-PAV15-001"
+        barcode:
+          type: string
+          nullable: true
+          example: "7501234567890"
+        image_url:
+          type: string
+          nullable: true
+          example: "http://localhost:8000/media/products/1/laptop.jpg"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-09-15T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-10-20T12:30:00Z"
+
+    ProductList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        total:
+          type: integer
+          description: Número total de productos (sin paginación)
+          example: 150
+
+    # ==================== Ventas ====================
+    SaleItem:
+      type: object
+      required:
+        - product_id
+        - product_name
+        - quantity
+        - unit_price
+        - subtotal
+      properties:
+        product_id:
+          type: integer
+          description: ID del producto vendido
+          example: 1
+        product_name:
+          type: string
+          description: Nombre del producto
+          example: "Laptop HP Pavilion 15"
+        quantity:
+          type: integer
+          minimum: 1
+          description: Cantidad vendida
+          example: 1
+        unit_price:
+          type: number
+          format: float
+          description: Precio unitario al momento de la venta
+          example: 15000.00
+        subtotal:
+          type: number
+          format: float
+          description: Subtotal (quantity * unit_price)
+          example: 15000.00
+
+    SaleCreate:
+      type: object
+      required:
+        - items
+        - subtotal
+        - tax
+        - total
+        - payment_method
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SaleItem'
+          description: Lista de productos vendidos
+        subtotal:
+          type: number
+          format: float
+          minimum: 0
+          description: Subtotal de la venta (sin impuestos ni descuentos)
+          example: 15500.00
+        tax:
+          type: number
+          format: float
+          minimum: 0
+          description: Impuestos aplicados
+          example: 2480.00
+        discount:
+          type: number
+          format: float
+          minimum: 0
+          default: 0
+          description: Descuento aplicado
+          example: 0.00
+        total:
+          type: number
+          format: float
+          minimum: 0
+          description: Total de la venta (subtotal + tax - discount)
+          example: 17980.00
+        payment_method:
+          type: string
+          enum: [cash, card, transfer]
+          description: Método de pago utilizado
+          example: "card"
+        customer_id:
+          type: integer
+          nullable: true
+          description: ID del cliente (opcional)
+          example: 5
+
+    SaleUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+          description: Estado de la venta
+
+    Sale:
+      type: object
+      required:
+        - id
+        - user_id
+        - items
+        - subtotal
+        - tax
+        - total
+        - payment_method
+        - status
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Identificador único de la venta
+          example: 123
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario que procesó la venta
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleItem'
+        subtotal:
+          type: number
+          format: float
+          example: 15500.00
+        tax:
+          type: number
+          format: float
+          example: 2480.00
+        discount:
+          type: number
+          format: float
+          example: 0.00
+        total:
+          type: number
+          format: float
+          example: 17980.00
+        payment_method:
+          type: string
+          enum: [cash, card, transfer]
+          example: "card"
+        customer_id:
+          type: integer
+          nullable: true
+          example: 5
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+          example: "completed"
+        net_total:
+          type: number
+          format: float
+          nullable: true
+          description: Total neto después de reembolsos por devoluciones
+          example: 17980.00
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-10-28T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-10-28T15:00:00Z"
+
+    SaleList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sale'
+        total:
+          type: integer
+          description: Número total de ventas
+          example: 250
+
+    TodayStats:
+      type: object
+      required:
+        - revenue_today
+        - products_sold_today
+        - customers_today
+        - transactions_today
+      properties:
+        revenue_today:
+          type: number
+          format: float
+          description: Ingresos totales del día
+          example: 125000.00
+        products_sold_today:
+          type: integer
+          description: Cantidad de productos vendidos hoy
+          example: 87
+        customers_today:
+          type: integer
+          description: Número de clientes atendidos hoy
+          example: 42
+        transactions_today:
+          type: integer
+          description: Número de transacciones del día
+          example: 35
+
+    TopProduct:
+      type: object
+      required:
+        - product_name
+        - total_quantity
+        - total_revenue
+      properties:
+        product_id:
+          type: integer
+          nullable: true
+          description: ID del producto
+          example: 1
+        product_name:
+          type: string
+          description: Nombre del producto
+          example: "Laptop HP Pavilion 15"
+        total_quantity:
+          type: integer
+          description: Cantidad total vendida
+          example: 45
+        total_revenue:
+          type: number
+          format: float
+          description: Ingresos totales generados por este producto
+          example: 675000.00
+
+    TopProducts:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopProduct'
+
+    # ==================== Clientes ====================
+    CustomerCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Nombre completo del cliente
+          example: "María González Rodríguez"
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Correo electrónico
+          example: "maria.gonzalez@example.com"
+        phone:
+          type: string
+          nullable: true
+          maxLength: 20
+          description: Número de teléfono
+          example: "+52 555 123 4567"
+        address:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Dirección completa
+          example: "Av. Reforma 123, Col. Centro, CDMX, 06000"
+
+    CustomerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+          maxLength: 20
+        address:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    Customer:
+      type: object
+      required:
+        - id
+        - name
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Identificador único del cliente
+          example: 5
+        name:
+          type: string
+          example: "María González Rodríguez"
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: "maria.gonzalez@example.com"
+        phone:
+          type: string
+          nullable: true
+          example: "+52 555 123 4567"
+        address:
+          type: string
+          nullable: true
+          example: "Av. Reforma 123, Col. Centro, CDMX, 06000"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-08-20T09:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-10-10T11:30:00Z"
+
+    CustomerList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+        total:
+          type: integer
+          description: Número total de clientes
+          example: 320
+
+    # ==================== Devoluciones ====================
+    ReturnItem:
+      type: object
+      required:
+        - product_id
+        - product_name
+        - quantity
+        - unit_price
+        - subtotal
+      properties:
+        product_id:
+          type: integer
+          example: 1
+        product_name:
+          type: string
+          example: "Laptop HP Pavilion 15"
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+        unit_price:
+          type: number
+          format: float
+          example: 15000.00
+        subtotal:
+          type: number
+          format: float
+          example: 15000.00
+
+    ExchangeItem:
+      type: object
+      required:
+        - product_id
+        - product_name
+        - quantity
+        - unit_price
+        - subtotal
+      properties:
+        product_id:
+          type: integer
+          example: 2
+        product_name:
+          type: string
+          example: "Laptop Dell Inspiron 15"
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+        unit_price:
+          type: number
+          format: float
+          example: 14500.00
+        subtotal:
+          type: number
+          format: float
+          example: 14500.00
+
+    ReturnCreate:
+      type: object
+      required:
+        - sale_id
+        - items_returned
+        - action
+      properties:
+        sale_id:
+          type: integer
+          description: ID de la venta original
+          example: 123
+        items_returned:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReturnItem'
+          description: Productos devueltos
+        items_exchanged:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ExchangeItem'
+          description: Productos de cambio (solo para action=exchange)
+        action:
+          type: string
+          enum: [refund, credit_note, exchange]
+          description: Tipo de acción a realizar
+          example: "refund"
+        refund_method:
+          type: string
+          nullable: true
+          enum: [cash, card, transfer]
+          description: Método de reembolso (requerido si action=refund)
+          example: "card"
+        reason:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Motivo de la devolución
+          example: "Producto defectuoso"
+
+    Return:
+      type: object
+      required:
+        - id
+        - sale_id
+        - user_id
+        - items_returned
+        - subtotal_refund
+        - tax_refund
+        - total_refund
+        - action
+        - status
+        - created_at
+      properties:
+        id:
+          type: integer
+          description: Identificador único de la devolución
+          example: 45
+        sale_id:
+          type: integer
+          example: 123
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario que procesó la devolución
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        items_returned:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReturnItem'
+        items_exchanged:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ExchangeItem'
+        subtotal_refund:
+          type: number
+          format: float
+          description: Subtotal del reembolso
+          example: 15000.00
+        tax_refund:
+          type: number
+          format: float
+          description: Impuestos reembolsados
+          example: 2400.00
+        total_refund:
+          type: number
+          format: float
+          description: Total reembolsado
+          example: 17400.00
+        action:
+          type: string
+          enum: [refund, credit_note, exchange]
+          example: "refund"
+        refund_method:
+          type: string
+          nullable: true
+          example: "card"
+        reason:
+          type: string
+          nullable: true
+          example: "Producto defectuoso"
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+          example: "completed"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-10-28T16:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-10-28T16:15:00Z"
+
+    ReturnList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Return'
+        total:
+          type: integer
+          description: Número total de devoluciones
+          example: 23
+
+    ReturnValidation:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          description: Indica si la venta es elegible para devolución
+          example: true
+        reason:
+          type: string
+          nullable: true
+          description: Razón de rechazo si no es elegible
+          example: "Periodo de devolución expirado"
+        errors:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Lista de errores específicos
+          example: ["Han pasado más de 30 días desde la compra"]
+
+    # ==================== Error ====================
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Descripción detallada del error
+          example: "Producto no encontrado"
