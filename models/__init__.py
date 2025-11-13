@@ -6,5 +6,6 @@ from models.product import Product
 from models.customer import Customer
 from models.sale import Sale
 from models.returns import Return
+from models.inventory_alert import InventoryAlert
 
-__all__ = ["User", "Product", "Customer", "Sale", "Return"]
+__all__ = ["User", "Product", "Customer", "Sale", "Return", "InventoryAlert"]

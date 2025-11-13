@@ -138,6 +138,9 @@ async def update_product(
             detail="Producto no encontrado"
         )
     
+    # Guardar el stock anterior
+    old_stock = db_product.stock
+    
     # Validaciones de unicidad si cambian sku o barcode
     update_data = product.model_dump(exclude_unset=True)
     if "sku" in update_data and update_data["sku"]:
@@ -162,6 +165,35 @@ async def update_product(
         setattr(db_product, field, value)
     
     await db.flush()
+    
+    # Resolver alertas automáticamente si el stock mejoró
+    new_stock = db_product.stock
+    if "stock" in update_data and new_stock > old_stock:
+        # Importar modelo de alertas
+        from models.inventory_alert import InventoryAlert
+        
+        # Buscar alertas activas de este producto relacionadas con stock
+        alerts_query = select(InventoryAlert).where(
+            InventoryAlert.product_id == product_id,
+            InventoryAlert.is_active == True,
+            InventoryAlert.alert_type.in_(['low_stock', 'no_stock'])
+        )
+        result = await db.execute(alerts_query)
+        active_alerts = result.scalars().all()
+        
+        # Resolver alertas si el stock ahora es suficiente
+        for alert in active_alerts:
+            # Si es alerta de "sin stock" y ahora hay stock
+            if alert.alert_type == 'no_stock' and new_stock > 0:
+                alert.is_active = False
+                alert.resolved_at = datetime.utcnow()
+            
+            # Si es alerta de "stock bajo" y ahora está por encima del umbral
+            elif alert.alert_type == 'low_stock' and alert.threshold:
+                if new_stock > alert.threshold:
+                    alert.is_active = False
+                    alert.resolved_at = datetime.utcnow()
+    
     await db.refresh(db_product)
     
     return db_product
