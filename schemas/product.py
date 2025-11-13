@@ -1,7 +1,7 @@
 """
 Schemas de Producto con Pydantic
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from typing import Optional
 from datetime import datetime
 
@@ -16,6 +16,13 @@ class ProductBase(BaseModel):
     sku: Optional[str] = None
     barcode: Optional[str] = None
     image_url: Optional[str] = None
+    
+    # Campos de promoción
+    discount_percentage: float = Field(default=0.0, ge=0, le=100)
+    has_promotion: bool = False
+    promotion_start: Optional[datetime] = None
+    promotion_end: Optional[datetime] = None
+    promotion_description: Optional[str] = None
 
 
 class ProductCreate(ProductBase):
@@ -33,6 +40,13 @@ class ProductUpdate(BaseModel):
     sku: Optional[str] = None
     barcode: Optional[str] = None
     image_url: Optional[str] = None
+    
+    # Campos de promoción
+    discount_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    has_promotion: Optional[bool] = None
+    promotion_start: Optional[datetime] = None
+    promotion_end: Optional[datetime] = None
+    promotion_description: Optional[str] = None
 
 
 class Product(ProductBase):

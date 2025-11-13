@@ -1,7 +1,7 @@
 """
 Modelo de Producto
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy.sql import func
 from db.session import Base
 
@@ -18,5 +18,13 @@ class Product(Base):
     sku = Column(String(50), unique=True, index=True, nullable=True)
     barcode = Column(String(50), unique=True, index=True)
     image_url = Column(String(500))
+    
+    # Campos de promoción y descuento
+    discount_percentage = Column(Float, default=0.0, nullable=False)
+    has_promotion = Column(Boolean, default=False, nullable=False)
+    promotion_start = Column(DateTime(timezone=True), nullable=True)
+    promotion_end = Column(DateTime(timezone=True), nullable=True)
+    promotion_description = Column(String(500), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
